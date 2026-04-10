@@ -1,0 +1,53 @@
+name: Sync upstream
+
+on:
+  schedule:
+    # Daily at 06:15 UTC
+    - cron: '15 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Merge upstream and mirror skills
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Merge vercel-labs/opensrc and mirror skills
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ! git remote get-url upstream &>/dev/null; then
+            git remote add upstream https://github.com/vercel-labs/opensrc.git
+          fi
+
+          git fetch upstream --prune
+          git merge upstream/main --no-edit
+
+          if [ -d packages/opensrc/skills ]; then
+            mkdir -p skills
+            rsync -a --delete packages/opensrc/skills/ skills/
+          else
+            echo "packages/opensrc/skills not found after merge; skipping mirror"
+          fi
+
+          git add skills
+
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: sync skills from packages/opensrc/skills"
+          fi
+
+          git push origin HEAD:fork
